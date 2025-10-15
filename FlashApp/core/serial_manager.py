@@ -239,12 +239,6 @@ class SerialManager:
             
             print(f"Generated serial number header file: {project_output_file}")
             
-            # Also create a copy in the script directory for reference
-            script_output_file = os.path.join(self.script_dir, output_file)
-            if script_output_file != project_output_file:
-                with open(script_output_file, 'w') as f:
-                    f.write(output_content)
-                print(f"Created copy of header file at: {script_output_file}")
             
             return True
         except Exception as e:

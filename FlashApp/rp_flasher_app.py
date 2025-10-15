@@ -24,7 +24,6 @@ APP_TITLE = "RP2040 Programmer"
 PYTHON = sys.executable
 SETTINGS_PATH = Path.home() / ".rpflasher_ui.json"
 
-# Hardcoded paths as requested
 CONFIG_PATH_FIXED = r"G:\_GitHub\SW_RP2040-ProductionFlasher\FlashApp\flasher_config.py"
 SERIAL_TEMPLATE_FIXED = r"G:\_GitHub\SW_RP2040-ProductionFlasher\FlashApp\Templates\serial_number.h.template"
 
@@ -135,7 +134,7 @@ class App(ctk.CTk):
 
         # Shared state
         self.project_dir = tk.StringVar(value=self.settings.get("project_dir", ""))
-        self.verbose = tk.BooleanVar(value=self.settings.get("verbose", False))  # keep toggle; set default as you like
+        self.verbose = tk.BooleanVar(value=self.settings.get("verbose", False)) 
 
         # Production state
         self.csv_path = tk.StringVar(value=self.settings.get("csv_path", ""))

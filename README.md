@@ -1,318 +1,244 @@
-# Raspberry Pi Pico Build & Program Tool
+# RP2040 Programmer
 
-## Overview
+A Python-based factory programming tool for RP2040-based ENERGIS PDU devices.
 
-This tool makes it easy to build and program Raspberry Pi Pico devices without dealing with complex CMake commands directly. It simplifies the process of building your code, flashing it to Pico devices, and even supports production workflows where you need to assign and track unique serial numbers for multiple devices.
+## Features
+
+- **Device Detection**: Automatic detection of RP2040 devices in BOOTSEL mode
+- **Firmware Upload**: Upload ELF/HEX/UF2 firmware via picotool
+- **Serial Provisioning**: Configure device serial number and region via UART
+- **Verification**: Verify device configuration after programming
+- **Label Generation**: Generate product labels from SVG templates
+- **Label Printing**: Print to PM-241-BT USB label printer
+- **Artefact Management**: Generate reports and archive all production data
+- **CSV Management**: Track production progress with CSV-based workflow
 
 ## Requirements
 
-- Python 3.6 or newer
-- Raspberry Pi Pico SDK (installed to `~/.pico-sdk`)
-- ARM GCC Toolchain 
-- CMake
-- Ninja build system
+### System Requirements
+- Python 3.8 or higher
+- Windows 10/11 or Linux (Ubuntu 20.04+)
+- picotool installed and accessible
 
-## Quick Start
-
-### Basic Usage
-
-```
-# Build your project
-py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project
-
-# Build and flash to a connected Pico
-py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --all
-
-# Clean the build directory and rebuild
-py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --clean --rebuild
+### Python Dependencies
+```bash
+pip install -r requirements.txt
 ```
 
-### Basic Commands
+Required packages:
+- `pyserial` - Serial communication
+- `psutil` - System/process utilities
+- `watchdog` - File system monitoring
 
-- `--clean`: Clean the build directory
-- `--configure`: Just run the CMake configuration step
-- `--build`: Just build the project (without configuring)
-- `--rebuild`: Clean, configure, and build
-- `--deploy`: Flash the firmware to a connected Pico
-- `--all`: Configure, build, and flash to Pico
+Optional packages (for full functionality):
+- `svglib` - SVG rendering
+- `reportlab` - PDF/image generation
+- `Pillow` - Image processing
 
-## Advanced Usage
+## Installation
 
-### Flashing Pre-built UF2 Files
-
-If you have a pre-built UF2 file, you can flash it directly:
-
-```
-py -3 FlashApp/RP_flasher.py --flash your_firmware.uf2
+1. Clone or extract the repository:
+```bash
+cd energis_factory_programmer
 ```
 
-If you get a warning about the device already having firmware, you can force the operation:
-
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
 ```
-py -3 FlashApp/RP_flasher.py --flash your_firmware.uf2 --force
+
+3. Ensure picotool is installed:
+   - **Windows**: Place `picotool.exe` in PATH or specify path in GUI
+   - **Linux**: Install via package manager or build from source
+     ```bash
+     sudo apt install picotool
+     # or build from https://github.com/raspberrypi/picotool
+     ```
+
+4. Configure label templates:
+   - Place SVG templates in `assets/templates/`
+   - Templates should contain `SERIAL_NUMBER` placeholder
+
+## Usage
+
+### Starting the Application
+```bash
+python main.py
 ```
 
-### Production Programming
+### Programming Workflow
 
-The tool supports a production workflow where each device gets a unique serial number. This is useful when you're making multiple devices and need to keep track of them.
+1. **Load CSV**: Open a production CSV file with serial numbers
+2. **Select Firmware**: Choose the firmware file (.elf, .hex, or .uf2)
+3. **Configure Settings**: Set firmware version, hardware version, region, etc.
+4. **Connect Device**: Put RP2040 in BOOTSEL mode (hold BOOTSEL, plug USB)
+5. **Start Programming**: Click "Start" to begin the automated workflow
 
-#### Setting Up Serial Numbers
+### CSV Format
 
-1. Create a CSV file (e.g., `serial_numbers.csv`) with your serial numbers:
-
+The production CSV must have these columns:
 ```csv
-serial_number,date_programmed,firmware_version,programmed_by,batch_id,notes
-PICO-001,2023-10-15,0.9.0,developer,BATCH0001,Initial test unit
-PICO-002,2023-10-15,0.9.0,developer,BATCH0001,Development unit
-PICO-003,,,,BATCH0002,Available for use
-PICO-004,,,,BATCH0002,Available for use
+serial_number,date_programmed,firmware_version,hardware_version,region_code,batch_id,notes
 ```
 
-2. Create a template file (e.g., `serial_number.h.template`) that will be used to generate a header with the serial number:
+- `serial_number`: Unique device identifier (required)
+- `date_programmed`: Filled automatically after successful programming
+- `firmware_version`: Recorded firmware version
+- `hardware_version`: Recorded hardware version
+- `region_code`: EU or US
+- `batch_id`: Production batch identifier
+- `notes`: Additional notes
 
-```c
-#ifndef SERIAL_NUMBER_H
-#define SERIAL_NUMBER_H
+### Programming Sequence
 
-// This file is automatically generated - do not edit manually
-
-#define SERIAL_NUMBER "SERIAL_NUMBER_PLACEHOLDER"
-
-#endif // SERIAL_NUMBER_H
-```
-
-#### Production Programming Commands
-
-- **Program with serial numbers**:
-  ```
-  py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --production serial_numbers.csv
-  ```
-
-- **List all devices and their status**:
-  ```
-  py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --production serial_numbers.csv --list-devices
-  ```
-
-- **Check which serial number is next**:
-  ```
-  py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --production serial_numbers.csv --next-serial
-  ```
-
-- **Set firmware version and programmer name**:
-  ```
-  py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --production serial_numbers.csv --firmware-version 1.1.0 --programmed-by "John"
-  ```
-
-### Complete Production Workflow
-
-For programming multiple devices in a production setting:
-
-1. **Preparation**:
-   - Ensure your code includes `"serial_number.h"` and uses the `SERIAL_NUMBER` constant
-   - Set up your `serial_numbers.csv` with all device serial numbers
-   - Create your `serial_number.h.template` file with the `SERIAL_NUMBER_PLACEHOLDER`
-
-2. **Programming Process**:
-   - Start by checking available serial numbers:
-     ```
-     py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --production serial_numbers.csv --list-devices
-     ```
-   
-   - For each device:
-     1. Connect a Pico in BOOTSEL mode
-     2. Run the production command:
-        ```
-        py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --production serial_numbers.csv --firmware-version X.Y.Z --programmed-by "Name"
-        ```
-     3. Verify successful programming
-     4. Disconnect the device and connect the next one
-     
-   - After programming all devices, verify the CSV records:
-     ```
-     py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --production serial_numbers.csv --list-devices
-     ```
-
-3. **Verification Testing**:
-   - Connect each programmed device to verify it boots properly
-   - Check that each device reports the correct serial number through its interface
-
-## How It Works
-
-### Basic Build Process
-
-1. **Configuration**: The tool runs CMake to set up your build
-2. **Building**: Ninja is used to compile your code
-3. **Deployment**: The compiled UF2 file is copied to your Pico when in BOOTSEL mode
-
-### Production Process
-
-1. **Serial Number Management**: The tool reads from your CSV file to find the next available serial number
-2. **Header Generation**: Creates a C header file with your unique serial number
-3. **Build Process**: Compiles your code with the serial number embedded
-4. **Programming**: Flashes the firmware to the Pico
-5. **Record Keeping**: Updates the CSV file with the date, firmware version, and who programmed it
-
-### Implementing Serial Numbers in Your Code
-
-The tool generates a `serial_number.h` file in your project directory that defines a `SERIAL_NUMBER` constant. To use this in your code:
-
-1. Add the include directive to your C files:
-   ```c
-   #include "serial_number.h"
-   ```
-
-2. Reference the serial number constant in your code:
-   ```c
-   printf("Device Serial Number: %s\n", SERIAL_NUMBER);
-   ```
-
-3. When the project builds, the correct unique serial number will be available to your code.
-
-Example modification to a simple project:
-
-```c
-#include <stdio.h>
-#include "pico/stdlib.h"
-#include "serial_number.h"  // Include the generated header
-
-int main()
-{
-    stdio_init_all();
-    
-    // Print startup message with serial number
-    printf("\n\nInitializing device %s\n", SERIAL_NUMBER);
-    
-    while (true) {
-        printf("Hello from device %s!\n", SERIAL_NUMBER);
-        sleep_ms(1000);
-    }
-}
-```
-
-### Device Identification System
-
-- **Embedded Serial Number**: The tool embeds the device's serial number directly in the firmware through the `serial_number.h` header file, which serves two purposes:
-  1. Makes the serial number accessible to your code at runtime
-  2. Allows the device to be identified later when connected in BOOTSEL mode
-
-- **Reading Device Information**: When a programmed Pico is connected in BOOTSEL mode, the tool can:
-  - Scan the device's flash memory for the `serial_number.h` file
-  - Extract the unique serial number from the header file
-  - Look up the device's complete history in the CSV database (programming date, firmware version, etc.)
-  - Display full details about the connected device
-
-- **Commands for Device Identification**:
-  ```
-  py -3 FlashApp/RP_flasher.py --identify-device
-  py -3 FlashApp/RP_flasher.py --identify-device --production serial_numbers.csv
-  ```
-
-### Safety Features
-
-- **Firmware Detection System**: The tool checks if a device might already have firmware before flashing using:
-  1. First, scanning for a `serial_number.h` file to identify devices programmed with this tool
-  2. As a fallback, examining the presence and content of the `INDEX.HTM` file:
-     - If the standard Raspberry Pi Pico index file is found → likely a fresh device
-     - If the file is missing or different → possibly already programmed
-  
-- **Safeguards**:
-  - When potential existing firmware is detected, the tool asks for confirmation
-  - You can override this check with the `--force` option when needed
-  - Serial numbers are only marked as "used" in the CSV when programming succeeds completely
-
-> Note: While the device identification system is reliable for devices programmed with this tool, the INDEX.HTM detection is a heuristic approach that is not foolproof. Use `--force` with caution to avoid overwriting important firmware.
+1. **Firmware Upload**: Uses picotool to flash firmware
+2. **Wait for Serial**: Detects serial port after device boots
+3. **Provisioning**:
+   - Sends unlock command
+   - Sets serial number
+   - Sets region code
+   - Verifies with status command
+   - Reboots device
+4. **Verification**: Queries SYSINFO/NETINFO to verify settings
+5. **Label Generation**: Creates label PNG from SVG template
+6. **Report Generation**: Creates markdown/HTML report
+7. **CSV Update**: Marks row as programmed with timestamp
 
 ## Configuration
 
-The tool looks for a `flasher_config.py` file in the FlashApp directory for settings. You can also specify a different config file:
-
-```
-py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --config my_other_config.py
-```
-
-Example configuration file:
+Edit `config/settings.py` to customize:
 
 ```python
-# Path Configuration
-HOME_DIR = os.path.expanduser("~")
-CMAKE_PATH = get_path(HOME_DIR, ".pico-sdk", "cmake", "v3.31.5", "bin", "cmake.exe")
-C_COMPILER_PATH = get_path(HOME_DIR, ".pico-sdk", "toolchain", "14_2_Rel1", "bin", "arm-none-eabi-gcc.exe") 
-CXX_COMPILER_PATH = get_path(HOME_DIR, ".pico-sdk", "toolchain", "14_2_Rel1", "bin", "arm-none-eabi-g++.exe")
-NINJA_PATH = get_path(HOME_DIR, ".pico-sdk", "ninja", "v1.12.1", "ninja.exe")
+# Device detection
+RP2040_VID = 0x2E8A
+RP2040_PID = 0x0003
+
+# Serial communication
+SERIAL_BAUDRATE = 115200
+SERIAL_TIMEOUT = 1.0
+
+# Label settings
+LABEL_WIDTH_MM = 75
+LABEL_HEIGHT_MM = 50
+LABEL_DPI = 300
+
+# Printer
+LABEL_PRINTER_NAME = "PM-241-BT"
 ```
+
+## Project Structure
+
+```
+energis_factory_programmer/
+├── main.py                 # Application entry point
+├── requirements.txt        # Python dependencies
+├── README.md              # This file
+│
+├── config/
+│   ├── __init__.py
+│   └── settings.py        # Global configuration
+│
+├── core/
+│   ├── __init__.py
+│   ├── device_detector.py # USB device detection
+│   ├── firmware_uploader.py # picotool wrapper
+│   ├── serial_provisioner.py # UART provisioning
+│   ├── csv_manager.py     # CSV file management
+│   └── verification.py    # Post-programming verification
+│
+├── gui/
+│   ├── __init__.py
+│   ├── main_window.py     # Main application window
+│   ├── device_panel.py    # Device list panel
+│   ├── csv_panel.py       # CSV management panel
+│   ├── provisioning_panel.py # Settings panel
+│   └── log_panel.py       # Activity log panel
+│
+├── label/
+│   ├── __init__.py
+│   └── label_generator.py # SVG→PNG label generation
+│
+├── artefacts/
+│   ├── __init__.py
+│   └── report_generator.py # Report/archive generation
+│
+├── utils/
+│   ├── __init__.py
+│   ├── logger.py          # Logging utilities
+│   └── persistence.py     # State persistence
+│
+└── assets/
+    ├── templates/
+    │   ├── ENERGIS_rating_label_EU.svg
+    │   └── ENERGIS_rating_label_US.svg
+    └── sample_production.csv
+```
+
+## Artefact Output
+
+For each programmed device, artefacts are saved to:
+```
+docs/Compliance_Documents/Artefacts/<SERIAL_NUMBER>/
+├── logs/
+│   ├── session_YYYYMMDD_HHMMSS.log
+│   └── serial_YYYYMMDD_HHMMSS.log
+├── reports/
+│   ├── report_YYYYMMDD_HHMMSS.md
+│   └── report_YYYYMMDD_HHMMSS.html
+├── labels/
+│   └── label_<serial>.png
+├── calibration/      # Placeholder for future use
+├── measurements/     # Placeholder for future use
+└── tests/           # Placeholder for future use
+```
+
+## Extending the Tool
+
+### Adding Calibration Support
+
+1. Create `core/calibration.py` with calibration routines
+2. Add calibration panel to GUI
+3. Integrate into workflow in `main_window.py`
+4. Save calibration data to artefacts `calibration/` directory
+
+### Adding Automated Tests
+
+1. Create `core/test_runner.py` for UTFW test integration
+2. Add test configuration panel
+3. Integrate into workflow
+4. Save test results to artefacts `tests/` directory
 
 ## Troubleshooting
 
-- **Pico not detected**: Make sure your Pico is in BOOTSEL mode (hold BOOTSEL button while connecting USB)
-- **Build errors**: Check the output for compiler errors and fix them in your code
-- **Python version error**: Make sure you're using Python 3.6 or newer (`py -3` on Windows)
-- **Path errors**: Verify that all tool paths in your config file are correct
+### Device Not Detected
+- Ensure device is in BOOTSEL mode (LED should indicate)
+- Check USB cable and connection
+- Verify RP2040 VID/PID match settings
+- Try refreshing devices (Tools → Refresh Devices)
 
-## Complete Command Reference
+### Firmware Upload Fails
+- Verify picotool is installed and in PATH
+- Check firmware file is valid ELF/HEX/UF2
+- Ensure device is in BOOTSEL mode
+- Check picotool output in log panel
 
-```
-# Basic commands
-py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project     # Configure and build the project
-py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --clean     # Clean the build directory
-py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --configure  # Only run the CMake configuration step
-py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --build      # Only build the project
-py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --rebuild    # Clean, configure, and build
-py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --deploy     # Deploy to a connected Pico
-py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --all        # Configure, build, and deploy
+### Serial Port Issues
+- Verify device has correct firmware with serial support
+- Check baud rate matches device configuration
+- On Linux, ensure user has permission to access serial ports:
+  ```bash
+  sudo usermod -a -G dialout $USER
+  ```
 
-# Advanced options
-py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --config my_config.py  # Use alternative config file
-py -3 FlashApp/RP_flasher.py --flash latest.uf2      # Flash a pre-built UF2 file
-py -3 FlashApp/RP_flasher.py --flash latest.uf2 --force # Force flash even if device seems programmed
-
-# Production commands
-py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --production serial_numbers.csv  # Program with serial numbers
-py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --production serial_numbers.csv --firmware-version 1.1.0 --programmed-by "John"
-py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --production serial_numbers.csv --list-devices  # List all devices
-py -3 FlashApp/RP_flasher.py --project-dir /path/to/your/project --production serial_numbers.csv --next-serial   # Show next available serial
-```
+### Label Printing Issues
+- Verify printer is installed as system printer
+- Check printer name matches settings
+- Ensure svglib and reportlab are installed
 
 ## License
-### Software Components
-This project's software is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
-See the [Software License](LICENSE-AGPL) file for details.
 
-#### What AGPL-3.0 means:
+Proprietary - ENERGIS Systems
 
-- ✅ **You can** freely use, modify, and distribute this software
-- ✅ **You can** use this project for personal, educational, or internal purposes
-- ✅ **You can** contribute improvements back to this project
+## Support
 
-- ⚠️ **You must** share any modifications you make if you distribute the software
-- ⚠️ **You must** release the source code if you run a modified version on a server that others interact with
-- ⚠️ **You must** keep all copyright notices intact
-
-- ❌ **You cannot** incorporate this code into proprietary software without sharing your source code
-- ❌ **You cannot** use this project in a commercial product without either complying with AGPL or obtaining a different license
-
-### Commercial & Enterprise Use
-
-Commercial use of this project is prohibited without obtaining a separate commercial license. If you are interested in:
-
-- Manufacturing and selling products based on these designs
-- Incorporating these designs into commercial products
-- Any other commercial applications
-
-Please contact me through any of the channels listed in the [Contact](#contact) section to discuss commercial licensing arrangements. Commercial licenses are available with reasonable terms to support ongoing development.
-
-## Contact
-
-For questions or feedback:
-- **Email:** [dvidmakesthings@gmail.com](mailto:dvidmakesthings@gmail.com)
-- **GitHub:** [DvidMakesThings](https://github.com/DvidMakesThings)
-
-## Contributing
-
-Contributions are welcome! As this is an early-stage project, please reach out before 
-making substantial changes:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/concept`)
-3. Commit your changes (`git commit -m 'Add concept'`)
-4. Push to the branch (`git push origin feature/concept`)
-5. Open a Pull Request with a detailed description
+For issues and support, contact the factory engineering team.

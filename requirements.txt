@@ -1,0 +1,23 @@
+# RP2040 Programmer Dependencies
+# GUI - tkinter is built-in, no pip install needed
+
+# Serial communication
+pyserial>=3.5
+
+# System monitoring and USB detection
+psutil>=5.9.0
+
+# File system monitoring for USB events
+watchdog>=3.0.0
+
+# SVG processing and PDF/image generation
+svglib>=1.5.0
+reportlab>=4.0.0
+
+# Image processing
+Pillow>=10.0.0
+
+# Windows-specific printing (optional, Windows only)
+# pywin32>=306  # Uncomment on Windows if needed
+
+# Note: On Linux, ensure 'cups' system package is installed for printing

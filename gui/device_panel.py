@@ -4,7 +4,7 @@ Device detection panel for RP2040 Programmer GUI.
 Displays detected RP2040 devices and their states.
 """
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from typing import Callable, List, Optional
 
 from core.device_detector import DeviceDetector, DetectedDevice, DeviceState
@@ -21,7 +21,8 @@ class DevicePanel(ttk.LabelFrame):
         self,
         parent: tk.Widget,
         device_detector: DeviceDetector,
-        on_device_selected: Optional[Callable[[DetectedDevice], None]] = None
+        on_device_selected: Optional[Callable[[DetectedDevice], None]] = None,
+        on_enter_boot_mode: Optional[Callable[[Optional[DetectedDevice]], None]] = None,
     ):
         """
         Initialize device panel.
@@ -35,10 +36,16 @@ class DevicePanel(ttk.LabelFrame):
         
         self._detector = device_detector
         self._on_device_selected = on_device_selected
+        self._on_enter_boot_mode = on_enter_boot_mode
         self._devices: List[DetectedDevice] = []
         
         self._create_widgets()
         self._setup_detector_callbacks()
+        # Populate immediately with a one-time refresh so devices present at startup are shown
+        try:
+            self._refresh_devices()
+        except Exception:
+            pass
     
     def _create_widgets(self) -> None:
         """Create panel widgets."""
@@ -53,6 +60,15 @@ class DevicePanel(ttk.LabelFrame):
         )
         self._status_label.pack(side=tk.LEFT)
         
+        # Enter BOOT Mode button
+        self._bootsel_btn = ttk.Button(
+            status_frame,
+            text="Enter BOOT Mode",
+            command=self._on_bootsel_clicked,
+            width=16
+        )
+        self._bootsel_btn.pack(side=tk.RIGHT, padx=(5, 0))
+
         self._refresh_btn = ttk.Button(
             status_frame,
             text="Refresh",
@@ -177,6 +193,25 @@ class DevicePanel(ttk.LabelFrame):
                 if dev.device_id == device_id:
                     self._on_device_selected(dev)
                     break
+
+    def _on_bootsel_clicked(self) -> None:
+        """Handle Enter BOOT Mode button click."""
+        # Prefer selected device if it is a serial device
+        target: Optional[DetectedDevice] = self.get_selected_device()
+        if not target or target.state != DeviceState.SERIAL:
+            # Fallback to first available serial device
+            for d in self._devices:
+                if d.state == DeviceState.SERIAL:
+                    target = d
+                    break
+        if not target:
+            messagebox.showwarning("Enter BOOT Mode", "No RP2040 serial device detected.")
+            return
+        if self._on_enter_boot_mode:
+            try:
+                self._on_enter_boot_mode(target)
+            except Exception as e:
+                messagebox.showerror("Enter BOOT Mode", f"Failed to send BOOTSEL: {e}")
     
     def get_selected_device(self) -> Optional[DetectedDevice]:
         """Get currently selected device."""

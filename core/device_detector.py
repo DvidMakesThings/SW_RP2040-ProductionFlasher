@@ -194,13 +194,76 @@ class DeviceDetector:
     
     def _scan_bootsel_devices(self) -> List[DetectedDevice]:
         """Scan for RP2040 devices in BOOTSEL mode (USB mass storage)."""
-        devices = []
+        devices: List[DetectedDevice] = []
+        candidates: List[str] = []
         
-        # Get mounted partitions
-        for partition in psutil.disk_partitions(all=True):
+        # 1) Use mounted partitions
+        parts = psutil.disk_partitions(all=False)
+        for partition in parts:
             mount = partition.mountpoint
-            
-            # Check if this is an RPI-RP2 device
+            if sys.platform != "win32":
+                # Require FAT-like filesystem for UF2 mass storage
+                if partition.fstype and partition.fstype.lower() not in ("vfat", "msdos", "fat", "fat32"):
+                    continue
+            candidates.append(mount)
+        
+        # 2) On Linux, also probe common paths directly by volume label
+        if sys.platform != "win32":
+            try:
+                from pathlib import Path as _P
+                # Explicit per-user mount path probe
+                user = _P.home().name
+                explicit = _P("/run/media") / user / CONFIG.RP2040_VOLUME_NAME
+                if explicit.exists():
+                    candidates.append(str(explicit))
+                for root in ("/media", "/run/media", "/mnt"):
+                    r = _P(root)
+                    if not r.exists():
+                        continue
+                    # Look for directories named by the expected volume label
+                    for p in r.glob(f"**/{CONFIG.RP2040_VOLUME_NAME}"):
+                        candidates.append(str(p))
+                # Check /dev/disk/by-label symlink to locate mount of RPI-RP2
+                by_label = _P("/dev/disk/by-label") / CONFIG.RP2040_VOLUME_NAME
+                if by_label.exists():
+                    try:
+                        dev_path = str(by_label.resolve())
+                        # Match mounted partitions for this device
+                        mounted = False
+                        for partition in parts:
+                            if partition.device == dev_path:
+                                candidates.append(partition.mountpoint)
+                                mounted = True
+                                break
+                        # If not mounted, still record presence for UI visibility
+                        if not mounted:
+                            candidates.append(str(by_label))
+                    except Exception:
+                        # Record symlink path even if resolution fails
+                        candidates.append(str(by_label))
+            except Exception:
+                pass
+        
+        # Deduplicate candidates
+        seen = set()
+        for mount in candidates:
+            if mount in seen:
+                continue
+            seen.add(mount)
+            # If candidate is a by-label path (not a real mount), accept it directly
+            is_by_label = mount.startswith("/dev/disk/by-label/")
+            if is_by_label:
+                device_id = f"bootsel_{mount}"
+                devices.append(DetectedDevice(
+                    device_id=device_id,
+                    state=DeviceState.BOOTSEL,
+                    path=mount,
+                    vid=CONFIG.RP2040_USB_VID,
+                    pid=CONFIG.RP2040_USB_PID_BOOT,
+                    description="RP2040 in BOOTSEL mode (not mounted)"
+                ))
+                continue
+
             if self._is_rpi_rp2_mount(mount):
                 device_id = f"bootsel_{mount}"
                 devices.append(DetectedDevice(
@@ -209,7 +272,7 @@ class DeviceDetector:
                     path=mount,
                     vid=CONFIG.RP2040_USB_VID,
                     pid=CONFIG.RP2040_USB_PID_BOOT,
-                    description=f"RP2040 in BOOTSEL mode"
+                    description="RP2040 in BOOTSEL mode"
                 ))
         
         return devices
@@ -218,18 +281,25 @@ class DeviceDetector:
         """Check if mount point is an RPI-RP2 device."""
         mount = Path(mount_path)
         
-        # Check for volume name in path (Windows: E:\, Linux: /media/user/RPI-RP2)
+        # Check for volume name in path (Windows: E:\\, Linux: /media/user/RPI-RP2)
         if CONFIG.RP2040_VOLUME_NAME.lower() in str(mount).lower():
             return True
         
-        # Check for INFO_UF2.TXT file (definitive marker)
+        # Check for INFO_UF2.TXT file (definitive marker). Be robust to permission issues.
         info_file = mount / "INFO_UF2.TXT"
-        if info_file.exists():
+        try:
+            exists = info_file.exists()
+        except Exception:
+            # Permission denied or other filesystem errors: treat as not present
+            exists = False
+        
+        if exists:
             try:
-                content = info_file.read_text()
+                content = info_file.read_text(errors="ignore")
                 if "RP2040" in content or "RPI-RP2" in content:
                     return True
-            except:
+            except Exception:
+                # Ignore unreadable files
                 pass
         
         return False

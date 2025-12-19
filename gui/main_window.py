@@ -25,7 +25,7 @@ from core.device_detector import DeviceDetector, DeviceInfo, DeviceState
 from core.firmware_uploader import FirmwareUploader, UploadResult
 from core.serial_provisioner import SerialProvisioner, ProvisioningResult
 from core.csv_manager import CSVManager
-from core.verification import DeviceVerifier, VerificationResult
+from core.verification import DeviceVerifier, VerificationResult, Verifier
 from label.label_generator import LabelGenerator, LabelResult
 from artefacts.report_generator import ReportGenerator, ProcessingReport, StepResult
 
@@ -163,7 +163,11 @@ class MainWindow:
         # Left: Device panel
         device_frame = ttk.LabelFrame(top_frame, text="Detected Devices", padding="5")
         device_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
-        self.device_panel = DevicePanel(device_frame, self.device_detector)
+        self.device_panel = DevicePanel(
+            device_frame,
+            self.device_detector,
+            on_enter_boot_mode=self._on_enter_boot_mode
+        )
         # Show panel inside its container
         self.device_panel.pack(fill=tk.BOTH, expand=True)
         
@@ -445,9 +449,18 @@ class MainWindow:
         """Validate all prerequisites for programming."""
         errors = []
         
-        # Check device
+        # Check device; if not set, attempt to select first available BOOTSEL
         if not self.current_device or self.current_device.state != DeviceState.BOOTSEL:
-            errors.append("No device in BOOTSEL mode detected")
+            try:
+                bootsel_devs = self.device_detector.get_bootsel_devices()
+                if bootsel_devs:
+                    self.current_device = bootsel_devs[0]
+                    # Hint the provisioning panel
+                    self.provisioning_panel.set_device_ready(True)
+                else:
+                    errors.append("No device in BOOTSEL mode detected")
+            except Exception:
+                errors.append("No device in BOOTSEL mode detected")
             
         # Check CSV
         if not self.csv_manager:
@@ -491,6 +504,24 @@ class MainWindow:
         
         progress, text = progress_map.get(state, (0, ""))
         self.log_panel.update_progress(progress, text)
+
+    def _wait_for_rp2040_serial(self, timeout: float) -> Optional[str]:
+        """Poll for a new RP2040 serial port without emitting detector warnings.
+
+        Returns the detected port path or None on timeout.
+        """
+        import time as _time
+        import serial.tools.list_ports as _lp
+
+        start = _time.time()
+        initial = {p.device for p in _lp.comports()}
+        while (_time.time() - start) < timeout:
+            for port in _lp.comports():
+                if port.device not in initial and port.vid == Settings.RP2040_USB_VID:
+                    self.logger.info(f"Serial port detected: {port.device}")
+                    return port.device
+            _time.sleep(0.1)
+        return None
         
     def _run_workflow(self):
         """Run the complete programming workflow (in worker thread)."""
@@ -568,31 +599,27 @@ class MainWindow:
             
             if not ctx.provisioning_result.success:
                 raise Exception(f"Provisioning failed: {ctx.provisioning_result.message}")
-                
-            self.logger.success("Provisioning completed successfully")
             
             # Step 4: Verification (after reboot)
             if self.stop_requested:
                 return
             self._queue_message({"type": "state", "state": WorkflowState.VERIFYING})
             
-            # Wait for device to reboot and serial port to reappear (same port allowed)
-            serial_port = self.device_detector.wait_for_serial_reappearance(
-                target_port=ctx.serial_port,
-                timeout=Settings.SERIAL_RECONNECT_TIMEOUT
-            )
-            
+            # After provisioning, the provisioner performs reboot→reconnect→ready.
+            # Use its connected port; fall back to a reconnect wait if needed.
+            serial_port = provisioner.port or provisioner.reboot_and_reconnect_wait_ready()
             if not serial_port:
                 raise Exception("Serial port did not reappear after reboot")
+            # Provisioner has already ensured readiness; update context and proceed
+            ctx.serial_port = serial_port
                 
-            # Ensure the device signals readiness before verification
-            verifier = DeviceVerifier(self.logger)
+            # Verify using the already-connected provisioner to avoid double reconnect/logs
+            verifier = Verifier(provisioner)
             ctx.verification_result = verifier.verify(
-                port=serial_port,
-                expected_serial=ctx.serial_number,
-                expected_region=ctx.region_code,
-                expected_firmware=ctx.firmware_version,
-                expected_hardware=ctx.hardware_version
+                serial_number=ctx.serial_number,
+                region=ctx.region_code,
+                firmware_version=ctx.firmware_version,
+                hardware_version=ctx.hardware_version
             )
             
             report.add_step(StepResult(
@@ -760,6 +787,40 @@ class MainWindow:
         self.device_detector.scan_now()
         self.device_panel.refresh()
         self._update_device_count()
+
+    def _on_enter_boot_mode(self, device: Optional[DeviceInfo] = None):
+        """Send BOOTSEL command over serial to enter BOOT mode."""
+        try:
+            # Determine target serial port
+            port = None
+            if device and device.state == DeviceState.SERIAL:
+                port = device.path
+            else:
+                serial_devs = self.device_detector.get_serial_devices()
+                if serial_devs:
+                    port = serial_devs[0].path
+            if not port:
+                messagebox.showwarning("Enter BOOT Mode", "No RP2040 serial device detected.")
+                return
+
+            self.logger.info(f"Sending BOOTSEL to {port}")
+            provisioner = SerialProvisioner(self.logger)
+            if not provisioner.connect(port):
+                messagebox.showerror("Enter BOOT Mode", f"Failed to open port: {port}")
+                return
+
+            # Send BOOTSEL command; device should switch to BOOTSEL and drop serial
+            provisioner.send_command("BOOTSEL", expect_response=False)
+            # Small grace period before disconnect
+            time.sleep(0.2)
+            provisioner.disconnect()
+
+            # Refresh devices after a short delay to observe disappearance and reappearance
+            self.root.after(500, lambda: self._on_refresh_devices())
+            self.logger.success("Device commanded to enter BOOT mode")
+        except Exception as e:
+            self.logger.error(f"Enter BOOT Mode failed: {e}")
+            messagebox.showerror("Enter BOOT Mode", f"Operation failed: {e}")
         
     def _on_test_label(self):
         """Handle Test Label Print menu action."""

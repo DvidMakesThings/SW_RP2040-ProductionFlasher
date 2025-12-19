@@ -330,11 +330,8 @@ class DeviceVerifier:
         prov = SerialProvisioner(self._logger)
         if not prov.connect(port):
             return VerificationResult(status=VerificationStatus.ERROR, message="Unable to open serial port")
-        # Immediately peek for readiness; proceed regardless
-        try:
-            prov.peek_for_ready(timeout=2.0)
-        except Exception:
-            pass
+        # The main workflow already ensures SYSTEM READY after reboot; avoid redundant waits here.
+        # Proceed directly to queries to keep verification fast and avoid consuming the banner twice.
         v = Verifier(prov)
         result = v.verify(
             serial_number=expected_serial,

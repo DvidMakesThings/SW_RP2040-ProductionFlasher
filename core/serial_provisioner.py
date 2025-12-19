@@ -15,6 +15,7 @@ from serial.tools import list_ports
 
 from config.settings import CONFIG
 from utils.logger import get_logger
+from core.device_detector import DeviceDetector
 
 
 class ProvisioningStatus(Enum):
@@ -71,12 +72,13 @@ class SerialProvisioner:
         """Get current port name."""
         return self._port
     
-    def connect(self, port: str) -> bool:
+    def connect(self, port: str, silence: bool = False) -> bool:
         """
         Connect to serial port.
         
         Args:
             port: Serial port path (e.g., COM3 or /dev/ttyACM0)
+            silence: When True, suppress info/success logs (used for quick retries)
         
         Returns:
             True if connection successful
@@ -84,7 +86,8 @@ class SerialProvisioner:
         self.disconnect()
         
         try:
-            self._logger.info("SerialProvisioner", f"Connecting to {port}")
+            if not silence:
+                self._logger.info("SerialProvisioner", f"Connecting to {port}")
             
             self._serial = serial.Serial(
                 port=port,
@@ -98,11 +101,13 @@ class SerialProvisioner:
             # Small delay for connection stabilization
             time.sleep(0.1)
             
-            self._logger.success("SerialProvisioner", f"Connected to {port}")
+            if not silence:
+                self._logger.success("SerialProvisioner", f"Connected to {port}")
             return True
         
         except serial.SerialException as e:
-            self._logger.error("SerialProvisioner", f"Connection failed: {e}")
+            if not silence:
+                self._logger.error("SerialProvisioner", f"Connection failed: {e}")
             self._serial = None
             self._port = None
             return False
@@ -254,11 +259,15 @@ class SerialProvisioner:
         self._logger.error("SerialProvisioner", "Timeout waiting for SYSTEM READY")
         return False
 
-    def peek_for_ready(self, timeout: float = 2.0) -> bool:
+    def peek_for_ready(self, timeout: float = 2.0, silence: bool = False) -> bool:
         """Quickly read for readiness markers without logging errors on timeout.
 
         Intended for immediately after reconnect, to avoid missing early boot banners.
         Returns True if a readiness marker is observed within the timeout.
+
+        Args:
+            timeout: Max seconds to peek for readiness
+            silence: When True, suppress success logging (used to avoid duplicate messages)
         """
         if not self.is_connected:
             return False
@@ -270,7 +279,8 @@ class SerialProvisioner:
                     if line:
                         self._logger.log_serial_rx(line)
                         if (CONFIG.SYSTEM_READY_MARKER in line) or ("CONSOLE READY" in line.upper()):
-                            self._logger.success("SerialProvisioner", "Device ready (peek)")
+                            if not silence:
+                                self._logger.success("SerialProvisioner", "Device ready")
                             return True
                 else:
                     time.sleep(0.02)
@@ -373,11 +383,22 @@ class SerialProvisioner:
 
     # Compatibility wrapper expected by GUI
     def provision(self, port: str, serial_number: str, region_code: str) -> ProvisioningResult:
-        if not self.connect(port):
+        # Try to connect with brief retries to avoid udev permission race
+        connected = False
+        for attempt in range(10):
+            if self.connect(port, silence=(attempt > 0)):
+                connected = True
+                break
+            time.sleep(0.2)
+        if not connected:
             return ProvisioningResult(status=ProvisioningStatus.PORT_ERROR, message="Failed to open port")
+        # Consolidated success if connected during a silent attempt
+        if attempt > 0:
+            self._logger.success("SerialProvisioner", f"Connected to {port}")
         self.wait_for_ready()
         result = self.provision_device(serial_number=serial_number, region=region_code)
-        self.reboot_device()
+        # Perform robust reboot → reappear → reconnect → ready sequence
+        _ = self.reboot_and_reconnect_wait_ready()
         return result
     
     def reboot_device(self) -> bool:
@@ -390,6 +411,72 @@ class SerialProvisioner:
         self._logger.info("SerialProvisioner", "Sending reboot command...")
         response = self.send_command("REBOOT", expect_response=False)
         time.sleep(CONFIG.SERIAL_REBOOT_WAIT)
+        return response is not None
+
+    def reboot_and_reconnect_wait_ready(self, timeout: float = None) -> Optional[str]:
+        """Reboot device, wait for new RP2040 serial port, reconnect, and wait for readiness.
+
+        Args:
+            timeout: Max seconds to wait for a new serial port. Defaults to `CONFIG.SERIAL_RECONNECT_TIMEOUT`.
+
+        Returns:
+            The new serial port path on success, or None on failure.
+        """
+        timeout = timeout or CONFIG.SERIAL_RECONNECT_TIMEOUT
+
+        old_port = self._port
+        try:
+            self._logger.info("SerialProvisioner", "Rebooting device...")
+            # Send reboot without waiting; the port will drop shortly
+            _ = self.send_command("REBOOT", expect_response=False)
+        except Exception:
+            pass
+
+        # Wait for any new RP2040 serial port, excluding the previous one
+        detector = DeviceDetector()
+        exclude = [old_port] if old_port else None
+        new_port = detector.wait_for_serial_port(timeout=timeout, exclude_ports=exclude)
+        if not new_port:
+            self._logger.error("SerialProvisioner", "Serial port did not reappear after reboot")
+            return None
+
+        # Suppress noisy port-change logs; proceed to clean connect sequence
+
+        # Connect immediately and wait for readiness (retry briefly to avoid race with udev permissions)
+        connected = False
+        for attempt in range(10):
+            # Suppress per-attempt logs; we will log once upon success
+            if self.connect(new_port, silence=True):
+                connected = True
+                break
+            time.sleep(0.2)
+        if not connected:
+            self._logger.error("SerialProvisioner", f"Unable to open serial port: {new_port}")
+            return None
+        # Single consolidated connection logs to match desired order
+        self._logger.info("SerialProvisioner", f"Connecting to {new_port}")
+        self._logger.success("SerialProvisioner", f"Connected to {new_port}")
+
+        # Catch early banners; if seen, emit a single success and skip the extra wait
+        if self.peek_for_ready(timeout=1.0, silence=True):
+            self._logger.success("SerialProvisioner", "Device ready")
+        else:
+            if not self.wait_for_ready(timeout=CONFIG.SERIAL_READY_TIMEOUT):
+                self._logger.error("SerialProvisioner", "Device did not signal SYSTEM READY after reboot")
+                self.disconnect()
+                return None
+
+        return new_port
+
+    def enter_boot_mode(self) -> bool:
+        """Send BOOTSEL command to force device into BOOTSEL (USB mass storage) mode.
+
+        Returns:
+            True if command was sent successfully (write succeeded)
+        """
+        self._logger.info("SerialProvisioner", "Sending BOOTSEL command...")
+        response = self.send_command("BOOTSEL", expect_response=False)
+        # Device typically drops serial immediately; caller should handle disappearance
         return response is not None
     
     def get_system_info(self) -> Optional[dict]:

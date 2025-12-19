@@ -22,9 +22,18 @@ class Settings:
     
     # Paths
     BASE_DIR = Path(__file__).parent.parent
-    # Use absolute path for artefacts base to ensure Explorer opens correctly
-    ARTEFACT_BASE_PATH = "X:\\Artefacts\\ENERGIS\\Artefacts"
-    TEMPLATE_DIR = "G:\\_GitHub\\HW_10-In-Rack_PDU\\docs\\Compliance_Documents\\src"
+    # Use absolute path for artefacts base to ensure Explorer opens correctly on Windows,
+    # and user-provided paths on Linux.
+    ARTEFACT_BASE_PATH = (
+        "X:\\Artefacts\\ENERGIS\\Artefacts"
+        if sys.platform == "win32"
+        else "/home/tpc/_GitHub/HW_10-In-Rack_PDU/docs/Compliance_Documents/Artefacts/"
+    )
+    TEMPLATE_DIR = (
+        "G:\\_GitHub\\HW_10-In-Rack_PDU\\docs\\Compliance_Documents\\src"
+        if sys.platform == "win32"
+        else "/home/tpc/_GitHub/HW_10-In-Rack_PDU/docs/Compliance_Documents/src/"
+    )
     PERSISTENCE_FILE = str(Path.home() / ".SW_RP2040-PRODUCTIONFLASHER" / "factory_programmer_state.json")
     LOG_FILE_PATH = str(Path.home() / ".SW_RP2040-PRODUCTIONFLASHER" / "logs" / "app.log")
     
@@ -36,7 +45,7 @@ class Settings:
     
     # Picotool configuration
     PICOTOOL_WINDOWS = "C:\\Users\\sdvid\\.pico-sdk\\picotool\\2.2.0-a4\\picotool\\picotool.exe"
-    PICOTOOL_LINUX = "/usr/local/bin/picotool"
+    PICOTOOL_LINUX = "/home/tpc/.pico-sdk/picotool/2.2.0-a4/picotool/picotool"
     PICOTOOL_LOAD_ARGS = ["-fx"]
     FIRMWARE_EXTENSIONS = [".elf", ".hex", ".uf2"]
     

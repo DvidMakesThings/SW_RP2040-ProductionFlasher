@@ -1,7 +1,7 @@
 serial_number,date_programmed,firmware_version,hardware_version,region_code,batch_id,notes
 SN-0167661,2025-11-05,1.0.0,1.1.0,EU,PROTO,Development unit
 SN-0167662,2025-11-06,1.0.0,1.1.0,US,RELEASE,Customer unit
-SN-0167663,2025-12-19 00:56:47,1.0.0,1.0.0,EU,Development Unit,
+SN-0167663,,,,,,
 SN-0167664,,,,,,
 SN-0167665,,,,,,
 SN-0167666,,,,,,

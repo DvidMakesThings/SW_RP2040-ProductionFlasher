@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg width="75mm" height="50mm" viewBox="0 0 75 50" xmlns="http://www.w3.org/2000/svg">
-  <rect x="0" y="0" width="75" height="50" fill="#FFFFFF" stroke="#000000" stroke-width="0.5"/>
-  <text x="37.5" y="15" text-anchor="middle" font-family="Ubuntu, Segoe UI, sans-serif" font-size="5" fill="#000000">ENERGIS PDU (US)</text>
-  <text x="37.5" y="28" text-anchor="middle" font-family="Ubuntu, Segoe UI, sans-serif" font-size="6" fill="#000000">SERIAL_NUMBER</text>
-  <text x="37.5" y="40" text-anchor="middle" font-family="Ubuntu, Segoe UI, sans-serif" font-size="4" fill="#000000">Sample placeholder label</text>
-</svg>

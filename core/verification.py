@@ -342,4 +342,6 @@ class DeviceVerifier:
         # Provide a dict-like view for checks while keeping list iteration
         result.checks = ChecksView(result.checks)  # type: ignore[assignment]
         prov.disconnect()
+        # Provide a dict-like view for checks to support legacy GUI usage (.items())
+        result.checks = ChecksView(result.checks)  # type: ignore[assignment]
         return result

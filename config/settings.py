@@ -21,9 +21,6 @@ class Settings:
     PLATFORM = "Windows" if sys.platform == "win32" else "Linux"
     
     # Paths
-    BASE_DIR = Path(__file__).parent.parent
-    # Use absolute path for artefacts base to ensure Explorer opens correctly on Windows,
-    # and user-provided paths on Linux.
     ARTEFACT_BASE_PATH = (
         "X:\\Artefacts\\ENERGIS\\Artefacts"
         if sys.platform == "win32"
@@ -34,8 +31,16 @@ class Settings:
         if sys.platform == "win32"
         else "/home/tpc/_GitHub/HW_10-In-Rack_PDU/docs/Compliance_Documents/src/"
     )
-    PERSISTENCE_FILE = str(Path.home() / ".SW_RP2040-PRODUCTIONFLASHER" / "factory_programmer_state.json")
-    LOG_FILE_PATH = str(Path.home() / ".SW_RP2040-PRODUCTIONFLASHER" / "logs" / "app.log")
+    PERSISTENCE_FILE = (
+        "G:\\_GitHub\\SW_RP2040-ProductionFlasher\\.settings\\factory_programmer_state.json"
+        if sys.platform == "win32"
+        else "/home/tpc/_GitHub/SW_RP2040-ProductionFlasher/.settings/factory_programmer_state.json"
+    )
+    LOG_FILE_PATH = (
+        "G:\\_GitHub\\SW_RP2040-ProductionFlasher\\.settings\\logs\\app.log"
+        if sys.platform == "win32"
+        else "/home/tpc/_GitHub/SW_RP2040-ProductionFlasher/.settings/logs/app.log"
+    )
     
     # RP2040 Detection
     RP2040_USB_VID = 0x2E8A  # Raspberry Pi VID

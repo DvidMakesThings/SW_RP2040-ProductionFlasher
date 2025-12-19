@@ -1,0 +1,21 @@
+{
+  "last_csv_path": "G:/_GitHub/SW_RP2040-ProductionFlasher/serial_numbers.csv",
+  "last_firmware_path": "G:/_GitHub/HW_10-In-Rack_PDU/docs/Compliance_Documents/BIN/ENERGIS_firmware_v1.0.0.elf",
+  "last_picotool_path": "C:\\Users\\sdvid\\.pico-sdk\\picotool\\2.2.0-a4\\picotool\\picotool.exe",
+  "last_label_template_path": "",
+  "last_firmware_version": "1.0.0",
+  "last_hardware_version": "1.0.0",
+  "last_region_code": "EU",
+  "last_batch_id": "Development Unit",
+  "last_notes": "",
+  "window_width": 1024,
+  "window_height": 768,
+  "window_x": null,
+  "window_y": null,
+  "recent_csv_files": [
+    "G:/_GitHub/SW_RP2040-ProductionFlasher/serial_numbers.csv"
+  ],
+  "recent_firmware_files": [
+    "G:/_GitHub/HW_10-In-Rack_PDU/docs/Compliance_Documents/BIN/ENERGIS_firmware_v1.0.0.elf"
+  ]
+}

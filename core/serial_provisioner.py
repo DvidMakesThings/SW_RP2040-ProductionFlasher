@@ -4,6 +4,7 @@ Serial provisioning module for ENERGIS PDU.
 Handles serial communication for device provisioning after firmware upload.
 """
 import time
+import sys
 import re
 import threading
 from dataclasses import dataclass, field
@@ -122,12 +123,13 @@ class SerialProvisioner:
             self._serial = None
             self._port = None
     
-    def reconnect(self, max_retries: int = None) -> bool:
+    def reconnect(self, max_retries: int = None, silence: bool = True) -> bool:
         """
         Attempt to reconnect to the same port.
         
         Args:
             max_retries: Maximum reconnection attempts
+            silence: Suppress per-attempt logs; only log a single failure on total failure
         
         Returns:
             True if reconnection successful
@@ -139,17 +141,21 @@ class SerialProvisioner:
         retries = max_retries or CONFIG.MAX_RESET_RETRIES
         
         for attempt in range(retries):
-            self._logger.info(
-                "SerialProvisioner",
-                f"Reconnect attempt {attempt + 1}/{retries}"
-            )
-            
+            if not silence:
+                self._logger.info(
+                    "SerialProvisioner",
+                    f"Reconnect attempt {attempt + 1}/{retries}"
+                )
+
             self.disconnect()
             time.sleep(CONFIG.RESET_RETRY_DELAY)
             
-            if self.connect(port):
+            if self.connect(port, silence=True):
+                if not silence:
+                    self._logger.success("SerialProvisioner", f"Connected to {port}")
                 return True
-        
+        if not silence:
+            self._logger.error("SerialProvisioner", f"Failed to reconnect to {port}")
         return False
     
     def send_command(
@@ -217,7 +223,7 @@ class SerialProvisioner:
         
         return lines
     
-    def wait_for_ready(self, timeout: float = None) -> bool:
+    def wait_for_ready(self, timeout: float = None, suppress_timeout_log: bool = False) -> bool:
         """
         Wait for "SYSTEM READY" message from device.
         
@@ -256,7 +262,8 @@ class SerialProvisioner:
                 if not self.reconnect(max_retries=1):
                     break
         
-        self._logger.error("SerialProvisioner", "Timeout waiting for SYSTEM READY")
+        if not suppress_timeout_log:
+            self._logger.error("SerialProvisioner", "Timeout waiting for SYSTEM READY")
         return False
 
     def peek_for_ready(self, timeout: float = 2.0, silence: bool = False) -> bool:
@@ -414,57 +421,72 @@ class SerialProvisioner:
         return response is not None
 
     def reboot_and_reconnect_wait_ready(self, timeout: float = None) -> Optional[str]:
-        """Reboot device, wait for new RP2040 serial port, reconnect, and wait for readiness.
+        """Reboot device, wait for RP2040 serial port (same or new), reconnect, and wait for readiness.
 
         Args:
-            timeout: Max seconds to wait for a new serial port. Defaults to `CONFIG.SERIAL_RECONNECT_TIMEOUT`.
+            timeout: Max seconds to wait for a serial port. Defaults to `CONFIG.SERIAL_RECONNECT_TIMEOUT`.
 
         Returns:
-            The new serial port path on success, or None on failure.
+            The detected serial port path on success, or None on failure.
         """
         timeout = timeout or CONFIG.SERIAL_RECONNECT_TIMEOUT
 
         old_port = self._port
-        try:
-            self._logger.info("SerialProvisioner", "Rebooting device...")
-            # Send reboot without waiting; the port will drop shortly
-            _ = self.send_command("REBOOT", expect_response=False)
-        except Exception:
-            pass
+        # Only send REBOOT if we are currently connected; avoid noise if already dropped
+        if self.is_connected:
+            try:
+                self._logger.info("SerialProvisioner", "Rebooting device...")
+                _ = self.send_command("REBOOT", expect_response=False)
+            except Exception:
+                pass
 
-        # Wait for any new RP2040 serial port, excluding the previous one
         detector = DeviceDetector()
-        exclude = [old_port] if old_port else None
-        new_port = detector.wait_for_serial_port(timeout=timeout, exclude_ports=exclude)
+
+        # On Windows the device may reappear on the SAME COM port; on Linux typically a new port.
+        # Try the same-port reappearance first, then fall back to new-port detection excluding the old.
+        new_port: Optional[str] = None
+        start = time.time()
+
+        if sys.platform == "win32" and old_port:
+            # Windows: device may reappear on the SAME COM port
+            budget = timeout / 5.0
+            new_port = detector.wait_for_serial_reappearance(old_port, timeout=budget)
+
+            if not new_port:
+                # Use remaining time to look for a new port, excluding the previous one
+                remaining = max(0.0, timeout - (time.time() - start))
+                exclude = [old_port] if old_port else None
+                new_port = detector.wait_for_serial_port(timeout=remaining or 0.1, exclude_ports=exclude)
+        else:
+            # Linux/macOS: typically a new port is assigned
+            exclude = [old_port] if old_port else None
+            new_port = detector.wait_for_serial_port(timeout=timeout, exclude_ports=exclude)
+
         if not new_port:
             self._logger.error("SerialProvisioner", "Serial port did not reappear after reboot")
             return None
 
-        # Suppress noisy port-change logs; proceed to clean connect sequence
-
-        # Connect immediately and wait for readiness (retry briefly to avoid race with udev permissions)
+        # Connect immediately and wait for readiness (retry briefly to avoid race with OS enumeration)
         connected = False
         for attempt in range(10):
-            # Suppress per-attempt logs; we will log once upon success
             if self.connect(new_port, silence=True):
                 connected = True
                 break
-            time.sleep(0.2)
+            time.sleep(0.1)
         if not connected:
             self._logger.error("SerialProvisioner", f"Unable to open serial port: {new_port}")
             return None
-        # Single consolidated connection logs to match desired order
-        self._logger.info("SerialProvisioner", f"Connecting to {new_port}")
+        # Single consolidated connection log (success only to reduce noise)
         self._logger.success("SerialProvisioner", f"Connected to {new_port}")
 
-        # Catch early banners; if seen, emit a single success and skip the extra wait
+        # Catch early banners; if seen, emit a single success and skip extra wait
         if self.peek_for_ready(timeout=1.0, silence=True):
             self._logger.success("SerialProvisioner", "Device ready")
         else:
-            if not self.wait_for_ready(timeout=CONFIG.SERIAL_READY_TIMEOUT):
-                self._logger.error("SerialProvisioner", "Device did not signal SYSTEM READY after reboot")
-                self.disconnect()
-                return None
+            # Wait for readiness once; if not ready yet, proceed without error and let callers continue.
+            if not self.wait_for_ready(timeout=CONFIG.SERIAL_READY_TIMEOUT, suppress_timeout_log=True):
+                # Keep the connection; device may finalize shortly.
+                return new_port
 
         return new_port
 

@@ -21,25 +21,26 @@ class Settings:
     PLATFORM = "Windows" if sys.platform == "win32" else "Linux"
     
     # Paths
+    _HOME = Path.home()
     ARTEFACT_BASE_PATH = (
         "X:\\Artefacts\\ENERGIS\\Artefacts"
         if sys.platform == "win32"
-        else "/home/tpc/_GitHub/HW_10-In-Rack_PDU/docs/Compliance_Documents/Artefacts/"
+        else str(_HOME / "_GitHub/HW_10-In-Rack_PDU/docs/Compliance_Documents/Artefacts/")
     )
     TEMPLATE_DIR = (
         "G:\\_GitHub\\HW_10-In-Rack_PDU\\docs\\Compliance_Documents\\src"
         if sys.platform == "win32"
-        else "/home/tpc/_GitHub/HW_10-In-Rack_PDU/docs/Compliance_Documents/src/"
+        else str(_HOME / "_GitHub/HW_10-In-Rack_PDU/docs/Compliance_Documents/src/")
     )
     PERSISTENCE_FILE = (
         "G:\\_GitHub\\SW_RP2040-ProductionFlasher\\.settings\\factory_programmer_state.json"
         if sys.platform == "win32"
-        else "/home/tpc/_GitHub/SW_RP2040-ProductionFlasher/.settings/factory_programmer_state.json"
+        else str(_HOME / "_GitHub/SW_RP2040-ProductionFlasher/.settings/factory_programmer_state.json")
     )
     LOG_FILE_PATH = (
         "G:\\_GitHub\\SW_RP2040-ProductionFlasher\\.settings\\logs\\app.log"
         if sys.platform == "win32"
-        else "/home/tpc/_GitHub/SW_RP2040-ProductionFlasher/.settings/logs/app.log"
+        else str(_HOME / "_GitHub/SW_RP2040-ProductionFlasher/.settings/logs/app.log")
     )
     
     # RP2040 Detection
@@ -50,7 +51,7 @@ class Settings:
     
     # Picotool configuration
     PICOTOOL_WINDOWS = "C:\\Users\\sdvid\\.pico-sdk\\picotool\\2.2.0-a4\\picotool\\picotool.exe"
-    PICOTOOL_LINUX = "/home/tpc/.pico-sdk/picotool/2.2.0-a4/picotool/picotool"
+    PICOTOOL_LINUX = str((Path(os.environ.get("PICOTOOL_PATH", "")) if os.environ.get("PICOTOOL_PATH") else Path.home() / ".pico-sdk/picotool/2.2.0-a4/picotool/picotool"))
     PICOTOOL_LOAD_ARGS = ["-fx"]
     FIRMWARE_EXTENSIONS = [".elf", ".hex", ".uf2"]
     
